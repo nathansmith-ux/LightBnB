@@ -92,11 +92,59 @@ const getAllReservations = function (guest_id, limit = 10) {
  * @return {Promise<[{}]>}  A promise to the properties.
  */
 const getAllProperties = function (options, limit = 10) {
-  return pool.query('SELECT * FROM properties LIMIT $1;', [limit])
-  .then((res) => {
-    return res.rows;
-  })
-  .catch(err => {
+  const queryParams = [];
+  let queryString = `SELECT properties.*, avg(property_reviews.rating) as average_rating FROM properties JOIN property_reviews ON properties.id = property_id `;
+  
+  /**
+   * Helper function to control the addition of strings to the SQL query
+   * @param {a string} condition A string to be added to the SQL query
+   */
+  const addCondition = (condition) => {
+    queryString += (queryParams.length > 0 ? 'AND ' : 'WHERE ') + condition + ' ';
+  };
+
+  // If City Is Added In Search Condition
+  if (options.city) {
+    queryParams.push(`%${options.city}%`);
+    addCondition(`city LIKE $${queryParams.length}`);
+  }
+
+  // If Owner ID Exists For My Listing
+  if (options.owner_id) {
+    queryParams.push(options.owner_id);
+    addCondition(`owner_id = $${queryParams.length}`);
+  }
+
+  // The Minimum Price Per Night In Search Condition
+  if (options.minimum_price_per_night) {
+    queryParams.push(options.minimum_price_per_night);
+    addCondition(`cost_per_night >= $${queryParams.length}`);
+  }
+
+  // The Maximum Price Per Night In Search Condition
+  if (options.maximum_price_per_night) {
+    queryParams.push(options.maximum_price_per_night);
+    addCondition(`cost_per_night <= $${queryParams.length}`);
+  }
+
+  queryString += `GROUP BY properties.id `
+
+  // Minimum rating condition
+  if (options.minimum_rating) {
+    queryParams.push(options.minimum_rating);
+    queryString += `HAVING avg(property_reviews.rating) >= $${queryParams.length} `;
+  }
+
+  // Tying The SQL Query Together & Placing So Having
+  queryParams.push(limit);
+  queryString += `ORDER BY cost_per_night LIMIT $${queryParams.length};`;
+  
+  
+  console.log(queryString, queryParams);
+  
+  return pool.query(queryString, queryParams)
+    .then((res) => res.rows)
+    .catch(err => {
     console.log('SQL error', err.message)
     return Promise.reject(err);
   })
